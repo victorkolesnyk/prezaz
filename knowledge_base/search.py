@@ -20,7 +20,10 @@ SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.3"))
 
 
 def get_collection():
-    ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBEDDING_MODEL)
+    try:
+        ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBEDDING_MODEL)
+    except Exception:
+        ef = embedding_functions.DefaultEmbeddingFunction()
     client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
     return client.get_or_create_collection(
         name=COLLECTION_NAME,

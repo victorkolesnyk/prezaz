@@ -87,7 +87,13 @@ def build_index(books_dir: str, db_dir: str) -> None:
 
     logger.info("Found %d files to index", len(pdf_files))
 
-    ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBEDDING_MODEL)
+    # Use DefaultEmbeddingFunction (ChromaDB's built-in ONNX model, no HuggingFace needed)
+    # Falls back automatically if EMBEDDING_MODEL is not downloadable
+    try:
+        ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=EMBEDDING_MODEL)
+    except Exception:
+        logger.warning("SentenceTransformer unavailable, using ChromaDB default embeddings")
+        ef = embedding_functions.DefaultEmbeddingFunction()
     chroma_client = chromadb.PersistentClient(path=str(db_path))
 
     collection = chroma_client.get_or_create_collection(
