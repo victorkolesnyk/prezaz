@@ -1,0 +1,32 @@
+# Середовище
+.env
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Дані (не комітимо книги та базу, але зберігаємо структуру)
+data/chroma_db/*
+data/books/*
+data/processed/*
+!data/chroma_db/.gitkeep
+!data/books/.gitkeep
+!data/processed/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Логи
+*.log
+logs/
+
+# macOS
+.DS_Store

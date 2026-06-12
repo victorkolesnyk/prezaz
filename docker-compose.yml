@@ -1,0 +1,13 @@
+version: "3.9"
+
+services:
+  zhyva-apteka-bot:
+    build: .
+    container_name: zhyva-apteka
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Персистентне зберігання ChromaDB та книг
+      - ./data/chroma_db:/app/data/chroma_db
+      - ./data/books:/app/data/books
+      - ./data/processed:/app/data/processed
