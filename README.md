@@ -1,18 +1,19 @@
 # 🌿 Жива Аптека
 
 **Персональний фіто-помічник** на основі українських лікарських книг.  
-Telegram-бот із RAG-архітектурою: ChromaDB + Sentence Transformers.
+Telegram-бот із RAG-архітектурою: ChromaDB + Claude API (Anthropic).
 
 ---
 
 ## Що це таке?
 
-«Жива Аптека» — це Telegram-бот, який відповідає на запитання про лікарські рослини, народну медицину та фітотерапію. Бот шукає відповіді **семантично** — він розуміє сенс вашого запиту, а не просто збігається за ключовими словами.
+«Жива Аптека» — це Telegram-бот, який відповідає на запитання про лікарські рослини, народну медицину та фітотерапію. Бот розуміє природну українську мову, а відповіді генерує **Claude** (Anthropic) на основі реального тексту з українських лікарських книг.
 
 Технологія **RAG (Retrieval-Augmented Generation)**:
-1. Тексти з книг та посібників зберігаються у векторній базі ChromaDB
+1. Тексти з книг зберігаються у векторній базі ChromaDB
 2. При запиті бот знаходить найближчі за змістом фрагменти
-3. Формує структуровану відповідь з посиланням на джерела
+3. Claude отримує ці фрагменти як контекст і формулює грамотну відповідь
+4. Підтримує фото рослин — Claude визначає рослину та надає фітотерапевтичну інформацію
 
 ---
 
@@ -20,36 +21,39 @@ Telegram-бот із RAG-архітектурою: ChromaDB + Sentence Transform
 
 ```
 zhyva-apteka/
-├── bot/                   # Telegram-бот (python-telegram-bot v20+)
-│   ├── __init__.py
-│   ├── main.py            # Точка входу, реєстрація обробників
-│   ├── handlers.py        # Обробники команд та повідомлень
-│   └── keyboards.py       # Інлайн-клавіатури
+├── bot/                        # Telegram-бот (python-telegram-bot v20+)
+│   ├── bot.py                  # Головний бот: Claude API + RAG
+│   ├── requirements.txt        # Залежності для bot/
+│   ├── Procfile                # Railway/Heroku: web: python bot.py
+│   ├── main.py                 # Альтернативна точка входу (без Claude)
+│   ├── handlers.py             # Обробники (legacy)
+│   └── keyboards.py            # Інлайн-клавіатури
 │
-├── rag/                   # RAG-система
-│   ├── __init__.py
-│   ├── embeddings.py      # sentence-transformers (багатомовна модель)
-│   ├── vectorstore.py     # Клієнт ChromaDB, add_documents, query
-│   └── retriever.py       # Пошук релевантних фрагментів, формування відповіді
+├── knowledge_base/             # Інтерфейс до векторної бази
+│   ├── build_index.py          # PDF/TXT → ChromaDB (побудова індексу)
+│   └── search.py               # Семантичний пошук по колекції
 │
-├── scripts/               # Службові скрипти
-│   ├── __init__.py
-│   ├── ingest.py          # Завантаження книг у векторну базу
-│   └── process_text.py    # Очищення та розбиття тексту на чанки
+├── rag/                        # RAG-система (низькорівнева)
+│   ├── embeddings.py           # sentence-transformers
+│   ├── vectorstore.py          # Клієнт ChromaDB
+│   └── retriever.py            # Пошук фрагментів
 │
-├── config/                # Конфігурація
-│   ├── __init__.py
-│   └── settings.py        # Pydantic Settings, завантаження з .env
+├── scripts/                    # Службові скрипти
+│   ├── ingest.py               # Завантаження книг у ChromaDB
+│   └── process_text.py         # Очищення та чанкування тексту
+│
+├── config/
+│   └── settings.py             # Pydantic Settings (.env)
 │
 ├── data/
-│   ├── books/             # ← Сюди кладіть ваші .txt або .pdf книги
-│   ├── chroma_db/         # Векторна база (генерується автоматично)
-│   └── processed/         # Проміжні оброблені файли
+│   ├── books/                  # ← Сюди кладіть .pdf або .txt книги
+│   ├── chroma_db/              # Векторна база (генерується автоматично)
+│   └── README.md               # Інструкції по даним
 │
-├── .env.example           # Шаблон конфігурації
-├── requirements.txt       # Python-залежності
-├── Dockerfile             # Docker-образ (Python 3.11 slim)
-└── docker-compose.yml     # Запуск бота та інгест-сервіс
+├── .env.example                # Шаблон конфігурації
+├── requirements.txt            # Python-залежності (повний список)
+├── Dockerfile
+└── docker-compose.yml
 ```
 
 ---
@@ -80,13 +84,14 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Відкрийте `.env` та вкажіть обов'язкове значення:
+Відкрийте `.env` та вкажіть обов'язкові значення:
 
 ```env
 TELEGRAM_TOKEN=1234567890:AABBCCddEEFF...
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-Інші змінні мають розумні значення за замовчуванням.
+Решта змінних мають розумні значення за замовчуванням.
 
 ### 3. Додайте книги
 
@@ -99,23 +104,26 @@ data/books/
 └── narodni_recepti.txt
 ```
 
-### 4. Завантажте тексти у векторну базу
+### 4. Побудуйте векторний індекс
 
 ```bash
-python scripts/ingest.py
+python knowledge_base/build_index.py
 ```
 
 Опції:
 ```bash
-python scripts/ingest.py --reset              # Очистити базу і завантажити заново
-python scripts/ingest.py --chunk-size 1024    # Змінити розмір чанку
-python scripts/ingest.py --books-path /path   # Вказати інший шлях до книг
+python knowledge_base/build_index.py --books-dir data/books --db-dir data/chroma_db
+```
+
+Або через legacy-скрипт:
+```bash
+python scripts/ingest.py --reset
 ```
 
 ### 5. Запустіть бота
 
 ```bash
-python bot/main.py
+python bot/bot.py
 ```
 
 ---
@@ -164,6 +172,7 @@ docker-compose logs -f zhyva-apteka-bot
 | Компонент           | Рішення                                      |
 |---------------------|----------------------------------------------|
 | Telegram бот        | python-telegram-bot v20+ (asyncio)           |
+| LLM генерація       | Claude `claude-opus-4-8` (Anthropic)         |
 | Векторна база       | ChromaDB (персистентний клієнт)              |
 | Модель ембедингів   | `paraphrase-multilingual-mpnet-base-v2`      |
 | Метрика схожості    | Косинусна відстань (HNSW index)              |
@@ -177,6 +186,7 @@ docker-compose logs -f zhyva-apteka-bot
 | Змінна                | Опис                                      | Значення за замовч.               |
 |-----------------------|-------------------------------------------|-----------------------------------|
 | `TELEGRAM_TOKEN`      | Токен бота від @BotFather                 | *обов'язково*                     |
+| `ANTHROPIC_API_KEY`   | API ключ Anthropic (claude.ai/console)    | *обов'язково*                     |
 | `CHROMA_DB_PATH`      | Шлях до ChromaDB                          | `data/chroma_db`                  |
 | `COLLECTION_NAME`     | Назва колекції                            | `herbal_medicine_ua`              |
 | `BOOKS_PATH`          | Шлях до книг                              | `data/books`                      |

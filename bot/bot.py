@@ -1,4 +1,5 @@
 import os
+import sys
 import base64
 import logging
 from collections import defaultdict
@@ -13,6 +14,15 @@ from telegram.ext import (
     filters,
 )
 
+# Allow imports from project root (rag/, config/, knowledge_base/)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+try:
+    from knowledge_base.search import search, format_context
+    _KB_AVAILABLE = True
+except Exception:
+    _KB_AVAILABLE = False
+
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
@@ -23,6 +33,8 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 
 SYSTEM_PROMPT = """Ти — Жива Аптека, персональний фіто-консультант на основі українських лікарських книг: Кархут "Ліки навколо нас", Носаль "Лікарські рослини і способи їх застосування в народі", "Довідник з фітотерапії" та "Дари лісу".
+
+Коли у повідомленні є розділ «📚 КОНТЕКСТ З КНИГ», використовуй його як основне джерело для відповіді. Цитуй або переказуй цей контекст. Якщо контексту немає — відповідай на основі загальних знань про фітотерапію.
 
 Твоя роль:
 - Надавати точну інформацію про лікарські рослини та їх властивості
@@ -44,6 +56,20 @@ MAX_HISTORY = 20
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 conversation_history: dict[int, list] = defaultdict(list)
+
+
+def _build_rag_message(query: str) -> str:
+    """Augment the user query with relevant book excerpts if available."""
+    if not _KB_AVAILABLE:
+        return query
+    try:
+        hits = search(query)
+        if hits:
+            context = format_context(hits)
+            return f"📚 КОНТЕКСТ З КНИГ:\n{context}\n\n❓ ЗАПИТАННЯ:\n{query}"
+    except Exception as e:
+        logger.warning("Knowledge base search failed: %s", e)
+    return query
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -87,8 +113,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
     text = update.message.text
 
+    # RAG: enrich the user message with relevant book excerpts
+    augmented = _build_rag_message(text)
+    # Store original text in history so follow-up turns are clean
     conversation_history[user_id].append({"role": "user", "content": text})
     _trim_history(user_id)
+
+    # Build messages list: use augmented text only for the current (last) turn
+    messages = conversation_history[user_id][:-1] + [{"role": "user", "content": augmented}]
 
     await update.message.chat.send_action("typing")
 
@@ -97,7 +129,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             model="claude-opus-4-8",
             max_tokens=2048,
             system=SYSTEM_PROMPT,
-            messages=conversation_history[user_id],
+            messages=messages,
         )
         answer = response.content[0].text
     except Exception as e:
@@ -118,6 +150,18 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     photo_bytes = await photo_file.download_as_bytearray()
     image_data = base64.standard_b64encode(bytes(photo_bytes)).decode("utf-8")
 
+    # RAG: search by caption text (cannot embed images)
+    rag_note = ""
+    if _KB_AVAILABLE:
+        try:
+            hits = search(caption)
+            if hits:
+                rag_note = "\n\n📚 КОНТЕКСТ З КНИГ:\n" + format_context(hits)
+        except Exception as e:
+            logger.warning("Knowledge base search failed for photo: %s", e)
+
+    text_content = caption + rag_note
+
     user_message = {
         "role": "user",
         "content": [
@@ -129,12 +173,21 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                     "data": image_data,
                 },
             },
-            {"type": "text", "text": caption},
+            {"type": "text", "text": text_content},
         ],
     }
 
-    conversation_history[user_id].append(user_message)
+    conversation_history[user_id].append({
+        "role": "user",
+        "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": image_data}},
+            {"type": "text", "text": caption},
+        ],
+    })
     _trim_history(user_id)
+
+    # Use RAG-augmented message for the current turn only
+    messages = conversation_history[user_id][:-1] + [user_message]
 
     await update.message.chat.send_action("typing")
 
@@ -143,7 +196,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             model="claude-opus-4-8",
             max_tokens=2048,
             system=SYSTEM_PROMPT,
-            messages=conversation_history[user_id],
+            messages=messages,
         )
         answer = response.content[0].text
     except Exception as e:

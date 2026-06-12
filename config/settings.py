@@ -23,6 +23,12 @@ class Settings(BaseSettings):
         description="Токен Telegram-бота від @BotFather",
     )
 
+    # Anthropic / Claude
+    anthropic_api_key: str = Field(
+        ...,
+        description="API ключ Anthropic для Claude",
+    )
+
     # ChromaDB
     chroma_db_path: str = Field(
         default="data/chroma_db",
