@@ -35,7 +35,7 @@ class Settings(BaseSettings):
         description="Шлях до директорії з базою ChromaDB",
     )
     collection_name: str = Field(
-        default="herbal_medicine_ua",
+        default="herbal_knowledge",
         description="Назва колекції в ChromaDB",
     )
 
