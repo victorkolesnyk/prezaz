@@ -11,3 +11,22 @@ services:
       - ./data/chroma_db:/app/data/chroma_db
       - ./data/books:/app/data/books
       - ./data/processed:/app/data/processed
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Окремий сервіс для одноразового завантаження даних у базу
+  # Запустіть: docker-compose run --rm ingest
+  ingest:
+    build: .
+    container_name: zhyva-apteka-ingest
+    env_file: .env
+    volumes:
+      - ./data/chroma_db:/app/data/chroma_db
+      - ./data/books:/app/data/books
+      - ./data/processed:/app/data/processed
+    command: ["python", "scripts/ingest.py"]
+    profiles:
+      - tools
