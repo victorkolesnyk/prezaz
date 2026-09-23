@@ -28,13 +28,14 @@ import soundfile as sf
 BLOCK_SECONDS = 0.1
 
 FORMATS = {
-    # Для MP3 compression_level=0.8 дає приблизно 40 кбіт/с (16 кГц моно),
-    # тобто близько 18 МБ на годину: вкладається в ліміти більшості сервісів транскрибування.
-    "mp3": {"format": "MP3", "subtype": "MPEG_LAYER_III",
-            "compression_level": 0.8, "bitrate_mode": "CONSTANT"},
+    "mp3": {"format": "MP3", "subtype": "MPEG_LAYER_III", "bitrate_mode": "CONSTANT"},
     "flac": {"format": "FLAC", "subtype": "PCM_16"},
     "wav": {"format": "WAV", "subtype": "PCM_16"},
 }
+
+# Бітрейт MP3 (кбіт/с) і відповідний compression_level libsndfile, виміряно для 16 кГц моно.
+# 24 кбіт/с — «диктофонна» якість: близько 11 МБ на годину, мовлення розбірливе.
+MP3_BITRATES = {16: 0.93, 24: 0.9, 32: 0.85, 40: 0.8}
 
 
 def find_device(devices, name_part):
@@ -134,9 +135,13 @@ def record(args):
     started = time.monotonic()
     last_status = 0.0
     blocks = 0
+    file_opts = dict(FORMATS[args.format])
+    if args.format == "mp3":
+        file_opts["compression_level"] = MP3_BITRATES[args.bitrate]
+
     with contextlib.ExitStack() as stack:
         out = stack.enter_context(sf.SoundFile(
-            path, "w", samplerate=args.samplerate, channels=channels, **FORMATS[args.format]))
+            path, "w", samplerate=args.samplerate, channels=channels, **file_opts))
         spk_rec = stack.enter_context(loopback.recorder(samplerate=args.samplerate))
         mic_rec = (stack.enter_context(mic.recorder(samplerate=args.samplerate, channels=1))
                    if mic else None)
@@ -182,6 +187,8 @@ def parse_args(argv=None):
     p.add_argument("--out", default="recordings", help="тека для записів (типово ./recordings)")
     p.add_argument("--name", default="", help="префікс назви файлу, напр. назва зустрічі")
     p.add_argument("--format", choices=FORMATS, default="mp3", help="формат файлу (типово mp3)")
+    p.add_argument("--bitrate", type=int, choices=MP3_BITRATES, default=24,
+                   help="бітрейт MP3, кбіт/с (типово 24, близько 11 МБ на годину)")
     p.add_argument("--samplerate", type=int, default=16000,
                    help="частота дискретизації, Гц (типово 16000, достатньо для мовлення)")
     p.add_argument("--stereo", action="store_true",
