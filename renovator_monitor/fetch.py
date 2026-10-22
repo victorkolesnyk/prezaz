@@ -52,7 +52,7 @@ class HttpClient:
         # Запобіжник: після кількох поспіль мережевих збоїв хост у цьому прогоні
         # більше не смикаємо, інакше недоступний сервіс з'їдає хвилини на повтори.
         self._failures: dict[str, int] = {}
-        self.breaker_threshold = 3
+        self.breaker_threshold = 2
 
     def _throttle(self, host: str) -> None:
         interval = self.min_interval.get(host, self.default_interval)
@@ -63,7 +63,11 @@ class HttpClient:
             self._last[host] = time.monotonic()
 
     def get(self, url: str, headers: dict[str, str] | None = None) -> Response:
-        host = (urlsplit(url).hostname or "").lower()
+        parts = urlsplit(url)
+        # Посилання приходять зі стрічок: file://, ftp:// тощо не відкриваємо ніколи.
+        if parts.scheme not in ("http", "https"):
+            raise FetchError(f"дозволено лише http(s): {url[:80]}")
+        host = (parts.hostname or "").lower()
         if self._failures.get(host, 0) >= self.breaker_threshold:
             raise FetchError(f"{host} недоступний у цьому прогоні, запит пропущено")
         req_headers = {

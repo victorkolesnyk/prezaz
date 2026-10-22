@@ -14,12 +14,13 @@ import json
 import os
 import tempfile
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
 from .models import RawMention
 from .relevance import score_text
 from .textutil import (canonical_url, domain_of, is_aggregator, short_hash,
-                       title_key, utcnow_iso)
+                       strip_tracking, title_key, utcnow_iso)
 
 STATUSES = ("relevant", "uncertain", "irrelevant")
 
@@ -73,6 +74,9 @@ class Registry:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 for r in rows:
                     f.write(json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp, 0o644)  # mkstemp створює 0600, а реєстр читають інші процеси
             os.replace(tmp, self.path)  # атомарна заміна: файл не буває напівзаписаним
         except BaseException:
             if os.path.exists(tmp):
@@ -87,15 +91,19 @@ class Registry:
             return self.records[rid]
         domain = m.domain or ("" if is_aggregator(m.url) else domain_of(m.url))
         tk = title_key(m.title, m.source_name)
-        if domain and tk:
+        # У Telegram «заголовок» є першим рядком допису: «Головне за день» у різних
+        # дописах однаковий, тому дописи зливаємо лише за URL.
+        if domain and tk and domain != "t.me":
             rid = self._by_title.get((domain, tk))
-            if rid:
+            if rid and _close_dates(self.records[rid].get("published_at"), m.published_at):
                 return self.records[rid]
         return None
 
     def upsert(self, m: RawMention, now: str | None = None) -> tuple[dict, bool]:
         """Додає або оновлює запис. Повертає (запис, чи_новий)."""
         now = now or utcnow_iso()
+        if not is_aggregator(m.url):
+            m.url = strip_tracking(m.url)
         domain = m.domain or ("" if is_aggregator(m.url) else domain_of(m.url))
         tk = title_key(m.title, m.source_name)
         via = f"{m.source}: {m.query}"
@@ -121,6 +129,7 @@ class Registry:
                 "last_seen_at": now[:10],
                 "found_via": [via],
                 "query_strong": m.query_has_strong_term,
+                "query_strong_literal": m.query_has_strong_term and m.literal_search,
                 "manual_status": None,
                 "notes": "",
                 "llm": None,
@@ -135,7 +144,7 @@ class Registry:
                 if is_aggregator(rec["url"]) and not is_aggregator(m.url):
                     rec["alt_urls"].append(rec["url"])
                     rec["url"] = m.url
-                elif m.url not in rec["alt_urls"]:
+                elif canonical_url(m.url) not in {canonical_url(u) for u in rec["alt_urls"]}:
                     rec["alt_urls"].append(m.url)
             if len(m.snippet) > len(rec.get("snippet") or ""):
                 rec["snippet"] = m.snippet
@@ -147,6 +156,8 @@ class Registry:
             if not rec.get("title_key") and tk:
                 rec["title_key"] = tk
             rec["query_strong"] = rec.get("query_strong") or m.query_has_strong_term
+            rec["query_strong_literal"] = (rec.get("query_strong_literal")
+                                           or (m.query_has_strong_term and m.literal_search))
         self.rescore(rec)
         self._index(rec)
         return rec, is_new
@@ -154,7 +165,8 @@ class Registry:
     def rescore(self, rec: dict) -> None:
         text = " ".join(filter(None, [rec.get("title"), rec.get("snippet"), rec.get("page_excerpt")]))
         s = score_text(text, query_strong=bool(rec.get("query_strong")),
-                       page_term=rec.get("page_term"))
+                       query_literal=bool(rec.get("query_strong_literal")),
+                       page_term=rec.get("page_term"), domain=rec.get("domain") or "")
         rec["score"] = s.score
         rec["auto_status"] = s.status
         rec["term"] = s.term
@@ -168,6 +180,8 @@ class Registry:
         if status is not None and status not in STATUSES:
             raise ValueError(f"статус має бути одним із {STATUSES}")
         rec["manual_status"] = status
+        if status is not None:
+            rec["notified"] = True  # людина вже бачила запис, сповіщати про нього зайве
         if note is not None:
             rec["notes"] = note
         return rec
@@ -182,6 +196,18 @@ class Registry:
 
     def all(self) -> list[dict]:
         return list(self.records.values())
+
+
+def _close_dates(a: str | None, b: str | None, days: int = 3) -> bool:
+    """Однаковий заголовок на тому ж сайті з різницею в місяці є іншою статтею (напр. «Підсумки тижня»)."""
+    if not a or not b:
+        return True
+    try:
+        da = datetime.fromisoformat(a.replace("Z", "+00:00"))
+        db = datetime.fromisoformat(b.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return abs((da - db).total_seconds()) <= days * 86400
 
 
 @contextmanager

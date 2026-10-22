@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import html
+import io
+import os
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -66,14 +68,23 @@ def row(rec: dict) -> dict:
     }
 
 
-def write_csv(records: list[dict], path: Path) -> None:
+def _write_atomic(path: Path, text: str, encoding: str = "utf-8") -> None:
+    """Читач (браузер, Excel, веб-сервер) ніколи не побачить напівзаписаний файл."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8-sig", newline="") as f:  # BOM, щоб Excel розпізнав UTF-8
-        w = csv.writer(f)
-        w.writerow([label for _, label in CSV_COLUMNS])
-        for rec in sorted(records, key=sort_key, reverse=True):
-            r = row(rec)
-            w.writerow([_csv_safe(r[k]) for k, _ in CSV_COLUMNS])
+    tmp = path.with_name(f".{path.name}.tmp")
+    with tmp.open("w", encoding=encoding, newline="") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
+def write_csv(records: list[dict], path: Path) -> None:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([label for _, label in CSV_COLUMNS])
+    for rec in sorted(records, key=sort_key, reverse=True):
+        r = row(rec)
+        w.writerow([_csv_safe(r[k]) for k, _ in CSV_COLUMNS])
+    _write_atomic(path, buf.getvalue(), encoding="utf-8-sig")  # BOM, щоб Excel розпізнав UTF-8
 
 
 def _safe_href(url: str) -> str:
@@ -131,8 +142,7 @@ a {{ color:inherit; }} .cols {{ display:flex; gap:32px; flex-wrap:wrap; }}
 <tbody>{''.join(rows_html)}</tbody></table>
 </body></html>
 """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(page, encoding="utf-8")
+    _write_atomic(path, page)
 
 
 def digest_markdown(records: list[dict], days: int, now: datetime | None = None) -> str:

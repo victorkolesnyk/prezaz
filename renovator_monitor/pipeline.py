@@ -74,9 +74,11 @@ def run(cfg: dict, only: list[str] | None = None, backfill: bool = False,
                 if is_new:
                     new_ids.append(rec["id"])
 
-        res.verified = verify.verify_pages(
-            reg, client, int(cfg.get("verify", {}).get("max_pages_per_run", 30)), res.errors)
-        res.classified = llm.classify(reg, cfg.get("llm", {}), res.errors)
+        # Кожен етап ізольований: збій одного не має коштувати збереження зібраного.
+        res.verified = _stage("перевірка сторінок", res.errors, 0, verify.verify_pages,
+                              reg, client, int(cfg.get("verify", {}).get("max_pages_per_run", 30)), res.errors)
+        res.classified = _stage("класифікація моделлю", res.errors, 0, llm.classify,
+                                reg, cfg.get("llm", {}), res.errors)
 
         res.new = len(new_ids)
         for rid in new_ids:
@@ -84,13 +86,28 @@ def run(cfg: dict, only: list[str] | None = None, backfill: bool = False,
             res.new_relevant += st == "relevant"
             res.new_uncertain += st == "uncertain"
 
+        include_uncertain = bool(cfg.get("notify", {}).get("include_uncertain"))
+        # Зберігаємо до сповіщень: якщо надсилання впаде, зібране не загубиться.
+        reg.save()
         if notify_enabled:
-            res.notified = notify.notify_new(
-                reg.all(), bool(cfg.get("notify", {}).get("include_uncertain")), res.errors)
+            res.notified = _stage("сповіщення", res.errors, 0, notify.notify_new,
+                                  reg.all(), include_uncertain, res.errors)
         else:
-            # Без сповіщень (напр. перше наповнення): позначаємо, щоб не засипати чат історією.
+            # Без сповіщень (напр. перше наповнення): позначаємо лише те, про що сповістили б зараз.
+            # Невизначене, яке згодом стане релевантним, ще прийде сповіщенням.
+            wanted = notify.wanted_statuses(include_uncertain)
             for r in reg.all():
-                r["notified"] = True
+                if effective_status(r) in wanted:
+                    r["notified"] = True
         reg.save()
         export(reg, cfg)
     return res
+
+
+def _stage(name: str, errors: list[str], default, fn, *args):
+    try:
+        return fn(*args)
+    except Exception as e:
+        log.exception("етап «%s» завершився помилкою", name)
+        errors.append(f"{name}: {type(e).__name__}: {e}")
+        return default

@@ -41,5 +41,6 @@ def collect(client: HttpClient, cfg: dict, ctx: dict) -> list[RawMention]:
                     published_at=it.published_at,
                     language=guess_language(f"{it.title} {snippet}", site.get("lang")),
                     query_has_strong_term=query_is_strong(query),
+                    literal_search=True,
                 ))
     return out

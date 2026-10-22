@@ -32,7 +32,7 @@ jobs:
 
       - name: Install optional Claude SDK
         if: ${{ vars.RENOVATOR_LLM_ENABLED == '1' }}
-        run: pip install "anthropic>=0.40"
+        run: pip install --upgrade anthropic
 
       - name: Run monitor
         env:

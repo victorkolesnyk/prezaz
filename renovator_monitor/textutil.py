@@ -111,6 +111,19 @@ def canonical_url(url: str) -> str:
     return urlunsplit((scheme, host, path, urlencode(sorted(query)), ""))
 
 
+def strip_tracking(url: str) -> str:
+    """Прибирає utm_* та подібні параметри, не чіпаючи хост і схему (на відміну від canonical_url)."""
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return url
+    if not parts.query:
+        return url.strip()
+    query = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+             if k.lower() not in _TRACKING_PARAMS and not k.lower().startswith("utm_")]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
 def domain_of(url: str) -> str:
     try:
         host = (urlsplit(url).hostname or "").lower()

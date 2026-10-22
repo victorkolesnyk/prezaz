@@ -55,6 +55,7 @@ def collect(client: HttpClient, cfg: dict, ctx: dict) -> list[RawMention]:
                 published_at=parse_date(art.get("seendate")),
                 language=guess_language(art.get("title", ""), lang),
                 query_has_strong_term=query_is_strong(query),
+                literal_search=True,
                 extra={"sourcecountry": art.get("sourcecountry", "")},
             ))
     return out

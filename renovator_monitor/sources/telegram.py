@@ -12,7 +12,7 @@ from urllib.parse import quote_plus
 
 from ..fetch import HttpClient
 from ..models import RawMention
-from ..relevance import query_is_strong
+from ..relevance import detect_term, query_is_strong
 from ..textutil import collapse_ws, guess_language, parse_date
 
 NAME = "telegram"
@@ -94,7 +94,8 @@ def collect(client: HttpClient, cfg: dict, ctx: dict) -> list[RawMention]:
                 continue
             for m in messages:
                 text = m["text"]
-                if not text:
+                # Бот бачить увесь текст допису: без терміна в ньому це не згадка.
+                if not text or detect_term(text) == "none":
                     continue
                 first_line = text.split("\n", 1)[0]
                 out.append(RawMention(
@@ -103,10 +104,11 @@ def collect(client: HttpClient, cfg: dict, ctx: dict) -> list[RawMention]:
                     source=NAME,
                     query=f"{query} [@{handle}]",
                     snippet=text[:1000],
-                    source_name=f"@{handle}",
+                    source_name=f"t.me/{handle}",  # не «@...»: Excel сприймає @ як формулу
                     domain="t.me",
                     published_at=parse_date(m["date"]),
                     language=guess_language(text),
                     query_has_strong_term=query_is_strong(query),
+                    literal_search=True,
                 ))
     return out

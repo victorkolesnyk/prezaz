@@ -19,4 +19,7 @@ class RawMention:
     # True, якщо пошуковий рушій сам шукав термін у повному тексті:
     # знахідка є свідченням згадки, навіть коли в заголовку терміна немає.
     query_has_strong_term: bool = False
+    # True для буквального повнотекстового пошуку (GDELT, WordPress, GOV.UK, Telegram);
+    # False для нечіткого (Google News, Bing), що може повернути статтю й без терміна.
+    literal_search: bool = False
     extra: dict = field(default_factory=dict)

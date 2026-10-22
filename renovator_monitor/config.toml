@@ -33,6 +33,9 @@ model = "claude-opus-5-5"
 effort = "low"
 max_per_run = 25
 classify_statuses = ["uncertain"]
+# Серверний резерв на випадок відмови фільтра безпеки (бета-функція Claude API).
+# Якщо API відповідає 400 через цей параметр, поставте false.
+server_fallback = true
 
 # ---------------- Джерела ----------------
 
