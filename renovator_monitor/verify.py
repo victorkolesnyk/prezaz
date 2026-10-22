@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 
-from .fetch import HttpClient
+from .fetch import HostSkipped, HttpClient
 from .registry import Registry, effective_status
 from .relevance import CYR_WORD, LAT_WORD, detect_term
 from .textutil import is_aggregator, strip_html, utcnow_iso
@@ -42,6 +42,8 @@ def verify_pages(reg: Registry, client: HttpClient, limit: int, errors: list[str
     for rec in candidates[:limit]:
         try:
             body = client.get(rec["url"], headers={"Accept": "text/html"}).text()
+        except HostSkipped:
+            continue  # запиту не було, спробу не рахуємо
         except Exception as e:
             # Тимчасовий збій не ставить хрест на сторінці: повторимо наступним прогоном.
             rec["page_check_attempts"] = rec.get("page_check_attempts", 0) + 1

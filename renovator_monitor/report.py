@@ -72,9 +72,13 @@ def _write_atomic(path: Path, text: str, encoding: str = "utf-8") -> None:
     """Читач (браузер, Excel, веб-сервер) ніколи не побачить напівзаписаний файл."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
-    with tmp.open("w", encoding=encoding, newline="") as f:
-        f.write(text)
-    os.replace(tmp, path)
+    try:
+        with tmp.open("w", encoding=encoding, newline="") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def write_csv(records: list[dict], path: Path) -> None:

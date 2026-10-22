@@ -20,6 +20,10 @@ class FetchError(Exception):
     pass
 
 
+class HostSkipped(FetchError):
+    """Запит не виконувався: хост вимкнено запобіжником у цьому прогоні."""
+
+
 @dataclass
 class Response:
     url: str
@@ -69,7 +73,7 @@ class HttpClient:
             raise FetchError(f"дозволено лише http(s): {url[:80]}")
         host = (parts.hostname or "").lower()
         if self._failures.get(host, 0) >= self.breaker_threshold:
-            raise FetchError(f"{host} недоступний у цьому прогоні, запит пропущено")
+            raise HostSkipped(f"{host} недоступний у цьому прогоні, запит пропущено")
         req_headers = {
             "User-Agent": self.user_agent,
             "Accept": "*/*",

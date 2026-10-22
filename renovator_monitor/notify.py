@@ -46,11 +46,18 @@ def _format(rec: dict) -> str:
     return line
 
 
-def send_telegram(text: str, token: str, chat_id: str) -> None:
-    data = urllib.parse.urlencode({
-        "chat_id": chat_id, "text": text, "parse_mode": "HTML",
-        "disable_web_page_preview": "true",
-    }).encode()
+def _format_plain(rec: dict) -> str:
+    """Запасний варіант без розмітки: на випадок, коли Telegram не розібрав HTML."""
+    date = (rec.get("published_at") or rec["first_seen_at"])[:10]
+    src = rec.get("source_name") or rec.get("domain") or ""
+    return f"{date}, {src}\n{(rec.get('title') or '')[:300]}\n{_safe_href(rec['url'])}\n{rec['id']}"
+
+
+def send_telegram(text: str, token: str, chat_id: str, html_mode: bool = True) -> None:
+    fields = {"chat_id": chat_id, "text": text, "disable_web_page_preview": "true"}
+    if html_mode:
+        fields["parse_mode"] = "HTML"
+    data = urllib.parse.urlencode(fields).encode()
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     for attempt in range(2):
         try:
@@ -106,13 +113,24 @@ def notify_new(records: list[dict], include_uncertain: bool, errors: list[str]) 
         text = "\n\n".join(([header] if i == 0 else []) + [_format(r) for r in batch])
         try:
             send_telegram(text, token, chat_id)
-        except Rejected:
-            # Одне «погане» повідомлення не має назавжди блокувати чергу: шлемо поштучно.
+        except Rejected as batch_error:
+            # Одне «погане» повідомлення не має назавжди блокувати чергу: шлемо поштучно,
+            # а якщо не йде HTML, то звичайним текстом.
+            ok_in_fallback = 0
             for r in batch:
                 try:
-                    send_telegram(_format(r), token, chat_id)
+                    try:
+                        send_telegram(_format(r), token, chat_id)
+                    except Rejected:
+                        send_telegram(_format_plain(r), token, chat_id, html_mode=False)
                     sent += 1
+                    ok_in_fallback += 1
                 except Rejected as e:
+                    if ok_in_fallback == 0 and str(e) == str(batch_error):
+                        # Та сама відмова навіть для простого тексту: проблема в чаті
+                        # («chat not found», бота видалено), а не в записах. Нічого не позначаємо.
+                        errors.append(f"Telegram: перевірте RENOVATOR_TG_CHAT_ID і права бота: {e}")
+                        return sent
                     r["notify_error"] = str(e)[:200]
                     errors.append(f"Telegram відхилив запис {r['id']}: {e}")
                 except Exception as e:

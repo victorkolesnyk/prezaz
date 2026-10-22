@@ -401,7 +401,7 @@ class ReviewRoundTwoTests(unittest.TestCase):
                  "first_seen_at": "2026-01-01T00:00:00Z", "auto_status": "relevant", "notified": False}
                 for i in range(3)]
 
-        def fake_send(text, *a):
+        def fake_send(text, *a, **kw):
             if "Нові згадування" in text or "r1" in text:
                 raise notify.Rejected("Bad Request: can't parse entities")
         errors = []
@@ -411,6 +411,69 @@ class ReviewRoundTwoTests(unittest.TestCase):
         self.assertEqual(sent, 2)
         self.assertTrue(all(r["notified"] for r in recs))  # черга не заблокована
         self.assertIn("notify_error", recs[1])
+
+    @mock.patch.object(notify.time, "sleep", lambda *_: None)
+    def test_chat_wide_rejection_marks_nothing(self):
+        recs = [{"id": f"r{i}", "url": f"https://e.com/{i}", "title": "x", "score": 70,
+                 "first_seen_at": "2026-01-01T00:00:00Z", "auto_status": "relevant", "notified": False}
+                for i in range(3)]
+        errors = []
+        with mock.patch.dict("os.environ", {"RENOVATOR_TG_TOKEN": "t", "RENOVATOR_TG_CHAT_ID": "c"}), \
+             mock.patch.object(notify, "send_telegram",
+                               side_effect=notify.Rejected("Bad Request: chat not found")):
+            self.assertEqual(notify.notify_new(recs, False, errors), 0)
+        self.assertFalse(any(r["notified"] for r in recs))
+        self.assertIn("RENOVATOR_TG_CHAT_ID", errors[-1])
+
+    @mock.patch.object(notify.time, "sleep", lambda *_: None)
+    def test_html_parse_error_retried_as_plain_text(self):
+        recs = [{"id": "r0", "url": "https://e.com/0", "title": "x", "score": 70,
+                 "first_seen_at": "2026-01-01T00:00:00Z", "auto_status": "relevant", "notified": False}]
+        modes = []
+
+        def fake_send(text, token, chat, html_mode=True):
+            modes.append(html_mode)
+            if html_mode:
+                raise notify.Rejected("Bad Request: can't parse entities")
+        with mock.patch.dict("os.environ", {"RENOVATOR_TG_TOKEN": "t", "RENOVATOR_TG_CHAT_ID": "c"}), \
+             mock.patch.object(notify, "send_telegram", side_effect=fake_send):
+            self.assertEqual(notify.notify_new(recs, False, []), 1)
+        self.assertEqual(modes, [True, True, False])
+        self.assertTrue(recs[0]["notified"])
+
+    def test_title_index_keeps_all_same_title_records(self):
+        with tempfile.TemporaryDirectory() as d:
+            reg = Registry(Path(d) / "r.jsonl")
+            a, _ = reg.upsert(RawMention(url="https://a.com/1", title="Підсумки тижня", source="w", query="q",
+                                         domain="a.com", published_at="2026-01-01T00:00:00Z"))
+            reg.upsert(RawMention(url="https://a.com/2", title="Підсумки тижня", source="w", query="q",
+                                  domain="a.com", published_at="2026-02-01T00:00:00Z"))
+            again, is_new = reg.upsert(RawMention(url="https://news.google.com/rss/articles/X", title="Підсумки тижня - A",
+                                                  source="google_news", query="q", source_name="A", domain="a.com",
+                                                  published_at="2026-01-01T06:00:00Z"))
+            self.assertFalse(is_new)
+            self.assertEqual(again["id"], a["id"])
+            self.assertEqual(len(reg.all()), 2)
+
+    def test_breaker_skip_does_not_burn_page_check_attempts(self):
+        from renovator_monitor import verify
+        from renovator_monitor.fetch import HostSkipped
+        with tempfile.TemporaryDirectory() as d:
+            reg = Registry(Path(d) / "r.jsonl")
+            rec, _ = reg.upsert(RawMention(url="https://a.com/1", title="Реноватор", source="t", query="q"))
+
+            class Skipper:
+                def get(self, *a, **k):
+                    raise HostSkipped("skip")
+            verify.verify_pages(reg, Skipper(), 10, [])
+            self.assertEqual(rec.get("page_check_attempts", 0), 0)
+
+    def test_old_records_migrated_on_load(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "r.jsonl"
+            p.write_text(json.dumps({"id": "x", "url": "https://a.com", "title": "t", "first_seen_at": "2026-01-01T00:00:00Z",
+                                     "found_via": ["gdelt: q"], "query_strong": True}) + "\n", encoding="utf-8")
+            self.assertTrue(Registry(p).records["x"]["query_strong_literal"])
 
     def test_notify_never_links_non_http(self):
         rec = {"id": "a", "url": "javascript:alert(1)", "title": "<b>x</b>", "score": 1,

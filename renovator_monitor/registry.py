@@ -40,7 +40,8 @@ class Registry:
         self.path = Path(path)
         self.records: dict[str, dict] = {}
         self._by_url: dict[str, str] = {}
-        self._by_title: dict[tuple[str, str], str] = {}
+        # Ключ може мати кілька записів: щотижневі «Підсумки тижня» на тому самому сайті.
+        self._by_title: dict[tuple[str, str], list[str]] = {}
         if self.path.exists():
             self._load()
 
@@ -56,6 +57,7 @@ class Registry:
                     rec = json.loads(line)
                 except json.JSONDecodeError as e:
                     raise ValueError(f"{self.path}:{n}: пошкоджений рядок реєстру: {e}") from e
+                _migrate(rec)
                 self._index(rec)
 
     def _index(self, rec: dict) -> None:
@@ -64,7 +66,9 @@ class Registry:
             if u:
                 self._by_url[canonical_url(u)] = rec["id"]
         if rec.get("title_key") and rec.get("domain"):
-            self._by_title[(rec["domain"], rec["title_key"])] = rec["id"]
+            ids = self._by_title.setdefault((rec["domain"], rec["title_key"]), [])
+            if rec["id"] not in ids:
+                ids.append(rec["id"])
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,9 +98,10 @@ class Registry:
         # У Telegram «заголовок» є першим рядком допису: «Головне за день» у різних
         # дописах однаковий, тому дописи зливаємо лише за URL.
         if domain and tk and domain != "t.me":
-            rid = self._by_title.get((domain, tk))
-            if rid and _close_dates(self.records[rid].get("published_at"), m.published_at):
-                return self.records[rid]
+            matches = [self.records[i] for i in self._by_title.get((domain, tk), [])
+                       if _close_dates(self.records[i].get("published_at"), m.published_at)]
+            if matches:
+                return min(matches, key=lambda r: _distance(r.get("published_at"), m.published_at))
         return None
 
     def upsert(self, m: RawMention, now: str | None = None) -> tuple[dict, bool]:
@@ -198,16 +203,33 @@ class Registry:
         return list(self.records.values())
 
 
+LITERAL_SOURCES = ("gdelt", "wordpress", "govuk", "telegram")
+
+
+def _migrate(rec: dict) -> None:
+    """Записи, створені до появи query_strong_literal: відновлюємо поле з found_via."""
+    if "query_strong_literal" not in rec:
+        rec["query_strong_literal"] = bool(rec.get("query_strong")) and any(
+            v.split(":", 1)[0] in LITERAL_SOURCES for v in rec.get("found_via", []))
+
+
+def _parse(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _distance(a: str | None, b: str | None) -> float:
+    da, db = _parse(a), _parse(b)
+    return abs((da - db).total_seconds()) if da and db else 0.0
+
+
 def _close_dates(a: str | None, b: str | None, days: int = 3) -> bool:
     """Однаковий заголовок на тому ж сайті з різницею в місяці є іншою статтею (напр. «Підсумки тижня»)."""
-    if not a or not b:
-        return True
-    try:
-        da = datetime.fromisoformat(a.replace("Z", "+00:00"))
-        db = datetime.fromisoformat(b.replace("Z", "+00:00"))
-    except ValueError:
-        return True
-    return abs((da - db).total_seconds()) <= days * 86400
+    return _distance(a, b) <= days * 86400
 
 
 @contextmanager
