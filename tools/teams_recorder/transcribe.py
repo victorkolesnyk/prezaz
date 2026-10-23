@@ -8,7 +8,8 @@
 У стерео-записі лівий канал — ви, правий — інші учасники.
 Мова визначається для кожного фрагмента серед --languages (типово uk,en); рідкісні
 мови з --extra-languages (типово lt,sv,lv,no,ru) обираються лише за впевненого визначення.
-Якщо в нараді звучало кілька мов, біля реплік стоїть код мови.
+Якщо в нараді звучало кілька мов, біля реплік стоїть код мови; з --split-languages
+поруч з'являються ще й окремі файли для кожної мови (зручно, коли є перекладач).
 """
 
 import argparse
@@ -88,7 +89,7 @@ def parse_codes(text):
 
 def transcribe_file(path, transcriber, languages=parse_codes(DEFAULT_LANGUAGES),
                     extra_languages=parse_codes(DEFAULT_EXTRA_LANGUAGES),
-                    labels=("Я", "Інші"), srt=False):
+                    labels=("Я", "Інші"), srt=False, split_languages=False):
     stereo = sf.info(path).channels == 2
     with open(path, "rb") as f:
         audio = f.read()
@@ -116,9 +117,15 @@ def transcribe_file(path, transcriber, languages=parse_codes(DEFAULT_LANGUAGES),
     outputs = [f"{base}.txt"]
     with open(outputs[0], "w", encoding="utf-8") as f:
         f.write(to_text(segments, with_speakers=stereo, with_languages=multi))
+    if split_languages and multi:
+        for lang in used:
+            outputs.append(f"{base}.{lang}.txt")
+            with open(outputs[-1], "w", encoding="utf-8") as f:
+                f.write(to_text([seg for seg in segments if seg["language"] == lang],
+                                with_speakers=stereo))
     if srt:
         outputs.append(f"{base}.srt")
-        with open(outputs[1], "w", encoding="utf-8") as f:
+        with open(outputs[-1], "w", encoding="utf-8") as f:
             f.write(to_srt(segments, with_speakers=stereo, with_languages=multi))
 
     print(f"Готово за {time.monotonic() - started:.0f} с"
@@ -139,6 +146,9 @@ def parse_args(argv=None):
     p.add_argument("--labels", default="Я,Інші",
                    help="підписи лівого й правого каналу через кому (типово «Я,Інші»)")
     p.add_argument("--srt", action="store_true", help="також зберегти субтитри .srt")
+    p.add_argument("--split-languages", action="store_true",
+                   help="якщо звучало кілька мов, також зберегти окремий .txt для кожної "
+                        "(напр. meeting.uk.txt, meeting.en.txt)")
     return p.parse_args(argv)
 
 
@@ -154,7 +164,8 @@ def main(argv=None):
                        if code not in languages]
     transcriber = get_transcriber()
     for path in args.files:
-        transcribe_file(path, transcriber, languages, extra_languages, labels, args.srt)
+        transcribe_file(path, transcriber, languages, extra_languages, labels, args.srt,
+                        args.split_languages)
 
 
 if __name__ == "__main__":

@@ -31,7 +31,7 @@ image = (
 models_volume = modal.Volume.from_name("teams-transcriber-models", create_if_missing=True)
 
 
-# Фрагменти мовлення, коротші за це, успадковують мову попереднього фрагмента:
+# Фрагменти мовлення, коротші за це, успадковують мову сусіднього фрагмента:
 # на кількох словах визначення мови ненадійне.
 MIN_DETECT_SECONDS = 2.0
 WINDOW_SECONDS = 30.0  # більше Whisper за один прохід не обробляє
@@ -43,19 +43,25 @@ EXTRA_MIN_PROB = 0.6
 EXTRA_MIN_PROB_BY_LANGUAGE = {"ru": 0.85}
 
 
-def speech_windows(samples, sampling_rate=16000):
-    """Ділить мовлення (за VAD) на вікна до 30 с; повертає [(start_s, end_s)]."""
+def speech_segments(samples, sampling_rate=16000):
+    """Фрагменти мовлення між паузами (за VAD), кожен до 30 с; [(start_s, end_s)]."""
     from faster_whisper.vad import VadOptions, get_speech_timestamps
 
-    speech = get_speech_timestamps(
-        samples, VadOptions(max_speech_duration_s=WINDOW_SECONDS, min_silence_duration_ms=160))
+    # Запас 0,2 с замість типових 0,4 с, щоб пауза між оригіналом і перекладом
+    # не «злипалася» і межа зміни мови лишалася видимою.
+    speech = get_speech_timestamps(samples, VadOptions(
+        max_speech_duration_s=WINDOW_SECONDS, min_silence_duration_ms=160, speech_pad_ms=200))
+    return [(seg["start"] / sampling_rate, seg["end"] / sampling_rate) for seg in speech]
+
+
+def group_windows(segments, langs):
+    """Зливає сусідні фрагменти однієї мови у вікна до 30 с: [((start, end), lang)]."""
     windows = []
-    for seg in speech:
-        start, end = seg["start"] / sampling_rate, seg["end"] / sampling_rate
-        if windows and end - windows[-1][0] <= WINDOW_SECONDS:
-            windows[-1] = (windows[-1][0], end)
+    for (start, end), lang in zip(segments, langs):
+        if windows and windows[-1][1] == lang and end - windows[-1][0][0] <= WINDOW_SECONDS:
+            windows[-1] = ((windows[-1][0][0], end), lang)
         else:
-            windows.append((start, end))
+            windows.append(((start, end), lang))
     return windows
 
 
@@ -72,35 +78,61 @@ def pick_language(model, chunk, languages, extra_languages=()):
     return main
 
 
+def detect_segment_languages(model, samples, segments, languages, extra_languages,
+                             sampling_rate=16000):
+    """Мова кожного фрагмента окремо: при послідовному перекладі мова змінюється
+    кожні кілька речень. Короткі фрагменти успадковують мову ближчого за часом сусіда."""
+    langs = []
+    for start, end in segments:
+        if end - start < MIN_DETECT_SECONDS:
+            langs.append(None)
+        else:
+            chunk = samples[int(start * sampling_rate):int(end * sampling_rate)]
+            langs.append(pick_language(model, chunk, languages, extra_languages))
+    if all(lang is None for lang in langs):
+        return [languages[0]] * len(segments)
+
+    resolved = list(langs)
+    for i, lang in enumerate(langs):
+        if lang is not None:
+            continue
+        left = i - 1 if i > 0 else None
+        right = next((j for j in range(i + 1, len(langs)) if langs[j] is not None), None)
+        # Напрямок обираємо за паузою до безпосереднього сусіда: фрагменти, між якими
+        # паузи майже немає, найімовірніше належать одній репліці.
+        gap_left = segments[i][0] - segments[i - 1][1] if i > 0 else float("inf")
+        gap_right = (segments[i + 1][0] - segments[i][1]
+                     if i + 1 < len(segments) else float("inf"))
+        if left is None or (right is not None and gap_right < gap_left):
+            resolved[i] = langs[right]
+        else:
+            # Лівий сусід уже розв'язаний, тож мова передається ланцюжком
+            resolved[i] = resolved[i - 1]
+    return resolved
+
+
 def transcribe_channel(model, pipeline, samples, languages, extra_languages, batch_size,
                        sampling_rate=16000):
-    windows = speech_windows(samples, sampling_rate)
-    if not windows:
+    segments = speech_segments(samples, sampling_rate)
+    if not segments:
         return []
 
     if len(languages) == 1 and not extra_languages:
-        window_langs = [languages[0]] * len(windows)
+        langs = [languages[0]] * len(segments)
     else:
-        window_langs, previous = [], None
-        for start, end in windows:
-            if previous and end - start < MIN_DETECT_SECONDS:
-                lang = previous
-            else:
-                chunk = samples[int(start * sampling_rate):int(end * sampling_rate)]
-                lang = pick_language(model, chunk, languages, extra_languages)
-            window_langs.append(lang)
-            previous = lang
+        langs = detect_segment_languages(model, samples, segments, languages, extra_languages,
+                                         sampling_rate)
+    windows = group_windows(segments, langs)
 
     result = []
-    for lang in sorted(set(window_langs)):
-        clips = [{"start": start, "end": end}
-                 for (start, end), wl in zip(windows, window_langs) if wl == lang]
-        segments, _info = pipeline.transcribe(
+    for lang in sorted(set(langs)):
+        clips = [{"start": start, "end": end} for (start, end), wl in windows if wl == lang]
+        found, _info = pipeline.transcribe(
             samples, language=lang, clip_timestamps=clips, batch_size=batch_size)
         result.extend(
             {"start": round(s.start, 2), "end": round(s.end, 2),
              "text": s.text.strip(), "language": lang}
-            for s in segments if s.text.strip())
+            for s in found if s.text.strip())
     return sorted(result, key=lambda seg: seg["start"])
 
 
@@ -108,7 +140,7 @@ def transcribe_channels(model, pipeline, audio_bytes, stereo, languages, extra_l
                         batch_size=16):
     """Повертає список каналів; кожен канал — сегменти {start, end, text, language}.
 
-    Мова визначається для кожного вікна мовлення окремо, лише серед `languages` та
+    Мова визначається для кожного фрагмента мовлення окремо, лише серед `languages` та
     `extra_languages` (останні — за ймовірності від EXTRA_MIN_PROB): так нарада може
     переходити з української на англійську, а українська не сплутується з близькими
     мовами поза списком.
