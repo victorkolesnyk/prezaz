@@ -116,7 +116,8 @@ def record(args):
         mic = (find_device(sc.all_microphones(), args.mic)
                if args.mic else sc.default_microphone())
 
-    channels = 1 if args.mono else 2
+    # Без мікрофона другий канал був би порожнім, тож пишемо моно
+    channels = 1 if args.mono or mic is None else 2
     path = build_output_path(args.out, args.name, args.format)
     frames = int(args.samplerate * BLOCK_SECONDS)
     max_blocks = int(args.duration * 60 / BLOCK_SECONDS) if args.duration else None
@@ -160,7 +161,7 @@ def record(args):
 
                 n = min(len(others), len(me))
                 others, me = others[:n], me[:n]
-                if not args.mono:
+                if channels == 2:
                     data = np.column_stack((me, others))
                 else:
                     data = me + others
@@ -173,7 +174,8 @@ def record(args):
                     elapsed = int(now - started)
                     print(f"\r{elapsed // 3600:02d}:{elapsed % 3600 // 60:02d}:{elapsed % 60:02d}"
                           f"  співрозмовники [{level_bar(rms_db(others))}]"
-                          f"  ви [{level_bar(rms_db(me))}]  ", end="", flush=True)
+                          + (f"  ви [{level_bar(rms_db(me))}]" if mic else "")
+                          + "  ", end="", flush=True)
         except KeyboardInterrupt:
             pass
 
@@ -201,7 +203,8 @@ def parse_args(argv=None):
                         "ви ліворуч, співрозмовники праворуч)")
     p.add_argument("--transcribe", action="store_true",
                    help="після зупинки транскрибувати запис через Modal (див. transcribe.py)")
-    p.add_argument("--no-mic", action="store_true", help="не писати мікрофон")
+    p.add_argument("--no-mic", action="store_true",
+                   help="не писати мікрофон, лише звук із навушників/динаміків (запис моно)")
     p.add_argument("--mic", help="частина назви мікрофона (типово системний)")
     p.add_argument("--speaker", help="частина назви динаміків/навушників (типово системні)")
     p.add_argument("--mic-gain", type=float, default=1.0, help="підсилення мікрофона")
