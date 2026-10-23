@@ -30,3 +30,21 @@ services:
     command: ["python", "scripts/ingest.py"]
     profiles:
       - tools
+
+  # Монітор згадувань «Реноватор»: лише стандартна бібліотека Python, окремий легкий образ.
+  # Запуск: docker-compose up -d renovator-monitor
+  renovator-monitor:
+    image: python:3.12-slim
+    container_name: renovator-monitor
+    restart: unless-stopped
+    working_dir: /app
+    env_file: .env
+    volumes:
+      - ./renovator_monitor:/app/renovator_monitor:ro
+      - ./data/renovator:/app/data/renovator
+    command: ["python", "-m", "renovator_monitor", "watch", "--interval", "3600"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

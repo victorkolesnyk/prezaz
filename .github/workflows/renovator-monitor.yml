@@ -1,0 +1,61 @@
+# Регулярний збір згадувань «Реноватор» і коміт оновленого реєстру в репозиторій.
+# Git слугує журналом аудиту: кожна зміна реєстру видна в історії.
+name: renovator-monitor
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"   # кожні 6 годин, у 17 хв, щоб не збігатися з піком о :00
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Перше наповнення: максимальна глибина пошуку, без сповіщень"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: renovator-monitor
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install optional Claude SDK
+        if: ${{ vars.RENOVATOR_LLM_ENABLED == '1' }}
+        run: pip install --upgrade anthropic
+
+      - name: Run monitor
+        env:
+          RENOVATOR_TG_TOKEN: ${{ secrets.RENOVATOR_TG_TOKEN }}
+          RENOVATOR_TG_CHAT_ID: ${{ secrets.RENOVATOR_TG_CHAT_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RENOVATOR_LLM_ENABLED: ${{ vars.RENOVATOR_LLM_ENABLED }}
+        run: |
+          if [ "${{ inputs.backfill }}" = "true" ]; then
+            python -m renovator_monitor run --backfill --silent
+          else
+            python -m renovator_monitor run
+          fi
+
+      - name: Commit registry
+        run: |
+          git config user.name "renovator-monitor"
+          git config user.email "renovator-monitor@users.noreply.github.com"
+          git add data/renovator/registry.jsonl data/renovator/registry.csv data/renovator/index.html
+          if git diff --cached --quiet; then
+            echo "Реєстр не змінився"
+          else
+            git commit -m "renovator-monitor: оновлення реєстру згадувань"
+            git pull --rebase
+            git push
+          fi

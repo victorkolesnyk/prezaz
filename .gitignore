@@ -30,3 +30,8 @@ logs/
 
 # macOS
 .DS_Store
+
+# Монітор «Реноватор»: службові файли (сам реєстр комітимо)
+data/renovator/*.lock
+data/renovator/.registry-*.tmp
+data/renovator/.*.tmp

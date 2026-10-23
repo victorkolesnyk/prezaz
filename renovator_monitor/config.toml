@@ -1,0 +1,154 @@
+# Конфігурація монітора згадувань «Реноватор».
+# Власний файл передається через --config; він накладається поверх цього.
+
+[storage]
+registry = "data/renovator/registry.jsonl"
+export_dir = "data/renovator"
+
+[http]
+user_agent = "RenovatorMonitor/1.0 (+media monitoring of NATO Project Renovator mentions)"
+timeout = 20
+retries = 2
+default_interval = 1.0
+
+# Мінімальна пауза між запитами до хоста, секунди. GDELT просить 5 с.
+[http.min_interval]
+"api.gdeltproject.org" = 5.5
+"news.google.com" = 2.0
+"www.bing.com" = 2.0
+"t.me" = 2.0
+
+[verify]
+# Скільки невизначених сторінок завантажувати за прогін для пошуку терміна в тексті.
+max_pages_per_run = 30
+
+[notify]
+# true: сповіщати і про «потребує перевірки», не лише про релевантні.
+include_uncertain = false
+
+[llm]
+# Класифікація невизначених знахідок моделлю Claude. Потрібні облікові дані Anthropic.
+enabled = false
+model = "claude-opus-5-5"
+effort = "low"
+max_per_run = 25
+classify_statuses = ["uncertain"]
+# Серверний резерв на випадок відмови фільтра безпеки (бета-функція Claude API).
+# Якщо API відповідає 400 через цей параметр, поставте false.
+server_fallback = true
+
+# ---------------- Джерела ----------------
+
+[sources.google_news]
+enabled = true
+# Обмеження давності для звичайних прогонів (оператор Google News when:). Для першого
+# наповнення використовуйте `run --backfill`, що знімає обмеження.
+when = "7d"
+
+[[sources.google_news.editions]]
+hl = "uk"
+gl = "UA"
+ceid = "UA:uk"
+queries = ["Реноватор", "\"проєкт Реноватор\"", "\"проект Реноватор\"", "Реноватора НАТО"]
+
+[[sources.google_news.editions]]
+hl = "en-GB"
+gl = "GB"
+ceid = "GB:en"
+queries = ["\"Project Renovator\"", "\"Operation Renovator\"", "Renovator NATO Ukraine"]
+
+[[sources.google_news.editions]]
+hl = "en-US"
+gl = "US"
+ceid = "US:en"
+queries = ["\"Project Renovator\" NATO", "Renovator NATO Ukraine rehabilitation"]
+
+[[sources.google_news.editions]]
+hl = "lv"
+gl = "LV"
+ceid = "LV:lv"
+queries = ["Renovator NATO", "Renovator Ukraina"]
+
+[[sources.google_news.editions]]
+hl = "lt"
+gl = "LT"
+ceid = "LT:lt"
+queries = ["Renovator NATO", "Renovator Ukraina"]
+
+[[sources.google_news.editions]]
+hl = "no"
+gl = "NO"
+ceid = "NO:no"
+queries = ["Renovator NATO", "Renovator Ukraina"]
+
+[[sources.google_news.editions]]
+hl = "sv"
+gl = "SE"
+ceid = "SE:sv"
+queries = ["Renovator Nato", "Renovator Ukraina"]
+
+[sources.bing_news]
+enabled = true
+
+[[sources.bing_news.markets]]
+setlang = "uk"
+cc = "UA"
+queries = ["Реноватор"]
+
+[[sources.bing_news.markets]]
+setlang = "en"
+cc = "GB"
+queries = ["\"Project Renovator\" NATO", "Renovator NATO Ukraine"]
+
+[sources.gdelt]
+enabled = true
+# Давність для звичайних прогонів; --backfill ставить 3months (максимум API для artlist).
+timespan = "1w"
+maxrecords = 250
+queries = [
+  "\"project renovator\"",
+  "\"operation renovator\"",
+  "renovator (nato OR ukraine)",
+]
+
+[sources.govuk]
+enabled = true
+count = 50
+queries = ["Renovator Ukraine", "\"Project Renovator\""]
+
+[sources.wordpress]
+enabled = true
+queries = ["реноватор", "renovator"]
+
+# Сайти, де в результатах пошуку від 2026-10-22 видно посилання WordPress (?p=).
+# Перевіряйте командою `python -m renovator_monitor doctor`.
+[[sources.wordpress.sites]]
+url = "https://armyinform.com.ua"
+name = "АрміяInform"
+lang = "uk"
+queries = ["реноватор"]
+
+[[sources.wordpress.sites]]
+url = "https://euromaidanpress.com"
+name = "Euromaidan Press"
+lang = "en"
+queries = ["renovator"]
+
+[[sources.wordpress.sites]]
+url = "https://ukdefencejournal.org.uk"
+name = "UK Defence Journal"
+lang = "en"
+queries = ["renovator"]
+
+[[sources.wordpress.sites]]
+url = "https://www.defenceonline.co.uk"
+name = "Defence Online"
+lang = "en"
+queries = ["renovator"]
+
+[sources.telegram]
+enabled = true
+queries = ["реноватор", "renovator"]
+# Публічні канали з увімкненим веб-переглядом t.me/s/<канал>. Список порожній навмисно:
+# додайте лише ті канали, назви яких ви перевірили (без @), напр. channels = ["назва_каналу"].
+channels = []
