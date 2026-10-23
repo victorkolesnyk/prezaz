@@ -30,3 +30,7 @@ logs/
 
 # macOS
 .DS_Store
+
+# Записи зустрічей
+recordings/
+tools/teams_recorder/.venv/
