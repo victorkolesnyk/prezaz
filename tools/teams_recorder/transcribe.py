@@ -6,8 +6,9 @@
 
 Поруч із кожним аудіофайлом з'являється .txt (і .srt з --srt).
 У стерео-записі лівий канал — ви, правий — інші учасники.
-Мова визначається для кожного фрагмента серед --languages (типово uk,en,sv,lv);
-якщо в нараді звучало кілька мов, біля реплік стоїть код мови.
+Мова визначається для кожного фрагмента серед --languages (типово uk,en); рідкісні
+мови з --extra-languages (типово lt,sv,lv,no) обираються лише за впевненого визначення.
+Якщо в нараді звучало кілька мов, біля реплік стоїть код мови.
 """
 
 import argparse
@@ -18,7 +19,8 @@ import time
 import soundfile as sf
 
 APP_NAME = "teams-transcriber"
-DEFAULT_LANGUAGES = "uk,en,sv,lv"
+DEFAULT_LANGUAGES = "uk,en"
+DEFAULT_EXTRA_LANGUAGES = "lt,sv,lv,no"
 # Якщо дві репліки однієї сторони розділяє менша пауза, вони зливаються в один абзац
 MERGE_GAP_SECONDS = 3.0
 
@@ -80,19 +82,27 @@ def get_transcriber():
     return modal.Cls.from_name(APP_NAME, "Transcriber")()
 
 
-def transcribe_file(path, transcriber, languages=DEFAULT_LANGUAGES.split(","),
+def parse_codes(text):
+    return [code.strip().lower() for code in text.split(",") if code.strip()]
+
+
+def transcribe_file(path, transcriber, languages=parse_codes(DEFAULT_LANGUAGES),
+                    extra_languages=parse_codes(DEFAULT_EXTRA_LANGUAGES),
                     labels=("Я", "Інші"), srt=False):
     stereo = sf.info(path).channels == 2
     with open(path, "rb") as f:
         audio = f.read()
 
     print(f"Транскрипція: {path} ({len(audio) / 1024 / 1024:.1f} МБ, "
-          f"{'стерео' if stereo else 'моно'}, мови: {', '.join(languages)})...", flush=True)
+          f"{'стерео' if stereo else 'моно'}, мови: {', '.join(languages)}"
+          + (f", рідкісні: {', '.join(extra_languages)}" if extra_languages else "")
+          + ")...", flush=True)
     started = time.monotonic()
     from modal.exception import AuthError, NotFoundError
 
     try:
-        channels = transcriber.transcribe.remote(audio, stereo, list(languages))
+        channels = transcriber.transcribe.remote(
+            audio, stereo, list(languages), list(extra_languages))
     except AuthError:
         sys.exit("Modal не авторизовано на цьому комп'ютері. Виконайте: modal token new")
     except NotFoundError:
@@ -120,9 +130,12 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Транскрипція записів нарад через Modal.")
     p.add_argument("files", nargs="+", help="аудіофайли (mp3, flac, wav)")
     p.add_argument("--languages", default=DEFAULT_LANGUAGES,
-                   help="коди можливих мов через кому; мова визначається для кожного "
-                        f"фрагмента лише серед них (типово {DEFAULT_LANGUAGES}). "
-                        "Одна мова, напр. «uk», вимикає визначення")
+                   help="коди основних мов через кому; мова визначається для кожного "
+                        f"фрагмента серед них (типово {DEFAULT_LANGUAGES})")
+    p.add_argument("--extra-languages", default=DEFAULT_EXTRA_LANGUAGES,
+                   help="рідкісні мови: обираються лише за впевненого визначення "
+                        f"(типово {DEFAULT_EXTRA_LANGUAGES}); \"\" вимикає. Одна основна мова "
+                        "без рідкісних вимикає визначення зовсім")
     p.add_argument("--labels", default="Я,Інші",
                    help="підписи лівого й правого каналу через кому (типово «Я,Інші»)")
     p.add_argument("--srt", action="store_true", help="також зберегти субтитри .srt")
@@ -134,12 +147,14 @@ def main(argv=None):
     labels = tuple(s.strip() for s in args.labels.split(",", 1))
     if len(labels) != 2:
         sys.exit("--labels: потрібні два підписи через кому, напр. «Я,Інші»")
-    languages = [code.strip().lower() for code in args.languages.split(",") if code.strip()]
+    languages = parse_codes(args.languages)
     if not languages:
         sys.exit("--languages: вкажіть хоча б одну мову, напр. «uk»")
+    extra_languages = [code for code in parse_codes(args.extra_languages)
+                       if code not in languages]
     transcriber = get_transcriber()
     for path in args.files:
-        transcribe_file(path, transcriber, languages, labels, args.srt)
+        transcribe_file(path, transcriber, languages, extra_languages, labels, args.srt)
 
 
 if __name__ == "__main__":
