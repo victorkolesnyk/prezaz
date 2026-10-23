@@ -1,7 +1,7 @@
 """Транскрипція записів нарад на хмарній відеокарті Modal (faster-whisper large-v3).
 
 Мова визначається для кожного фрагмента мовлення серед основних мов (uk, en), а рідкісні
-(lt, sv, lv, no) обираються лише за впевненого визначення.
+(lt, sv, lv, no, ru) обираються лише за впевненого визначення.
 
 Розгортання (один раз і після кожної зміни цього файлу):
     modal deploy modal_app.py
@@ -38,6 +38,9 @@ WINDOW_SECONDS = 30.0  # більше Whisper за один прохід не о
 # Рідкісна мова призначається фрагменту лише за такої ймовірності: інакше англійське
 # чи українське мовлення з акцентом могло б «перейти» в близьку рідкісну мову.
 EXTRA_MIN_PROB = 0.6
+# Для мов, близьких до основних, поріг вищий. Whisper часто дає українському мовленню
+# помітну ймовірність російської, тож російська обирається лише за майже певного визначення.
+EXTRA_MIN_PROB_BY_LANGUAGE = {"ru": 0.85}
 
 
 def speech_windows(samples, sampling_rate=16000):
@@ -63,7 +66,8 @@ def pick_language(model, chunk, languages, extra_languages=()):
     main = max(languages, key=lambda lang: probs.get(lang, 0.0))
     if extra_languages:
         extra = max(extra_languages, key=lambda lang: probs.get(lang, 0.0))
-        if probs.get(extra, 0.0) >= EXTRA_MIN_PROB and probs[extra] > probs.get(main, 0.0):
+        threshold = EXTRA_MIN_PROB_BY_LANGUAGE.get(extra, EXTRA_MIN_PROB)
+        if probs.get(extra, 0.0) >= threshold and probs[extra] > probs.get(main, 0.0):
             return extra
     return main
 

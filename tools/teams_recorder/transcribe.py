@@ -7,7 +7,7 @@
 Поруч із кожним аудіофайлом з'являється .txt (і .srt з --srt).
 У стерео-записі лівий канал — ви, правий — інші учасники.
 Мова визначається для кожного фрагмента серед --languages (типово uk,en); рідкісні
-мови з --extra-languages (типово lt,sv,lv,no) обираються лише за впевненого визначення.
+мови з --extra-languages (типово lt,sv,lv,no,ru) обираються лише за впевненого визначення.
 Якщо в нараді звучало кілька мов, біля реплік стоїть код мови.
 """
 
@@ -20,7 +20,7 @@ import soundfile as sf
 
 APP_NAME = "teams-transcriber"
 DEFAULT_LANGUAGES = "uk,en"
-DEFAULT_EXTRA_LANGUAGES = "lt,sv,lv,no"
+DEFAULT_EXTRA_LANGUAGES = "lt,sv,lv,no,ru"
 # Якщо дві репліки однієї сторони розділяє менша пауза, вони зливаються в один абзац
 MERGE_GAP_SECONDS = 3.0
 
