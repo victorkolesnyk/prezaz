@@ -1,5 +1,7 @@
 """Транскрипція записів нарад на хмарній відеокарті Modal (faster-whisper large-v3).
 
+Мова визначається для кожного фрагмента мовлення серед заданого списку (uk, en, sv, lv...).
+
 Розгортання (один раз і після кожної зміни цього файлу):
     modal deploy modal_app.py
 
@@ -28,25 +30,80 @@ image = (
 models_volume = modal.Volume.from_name("teams-transcriber-models", create_if_missing=True)
 
 
-def transcribe_channels(pipeline, audio_bytes, stereo, language, batch_size=16):
-    """Повертає список каналів; кожен канал — список сегментів {start, end, text}.
+# Фрагменти мовлення, коротші за це, успадковують мову попереднього фрагмента:
+# на кількох словах визначення мови ненадійне.
+MIN_DETECT_SECONDS = 2.0
+WINDOW_SECONDS = 30.0  # більше Whisper за один прохід не обробляє
 
+
+def speech_windows(samples, sampling_rate=16000):
+    """Ділить мовлення (за VAD) на вікна до 30 с; повертає [(start_s, end_s)]."""
+    from faster_whisper.vad import VadOptions, get_speech_timestamps
+
+    speech = get_speech_timestamps(
+        samples, VadOptions(max_speech_duration_s=WINDOW_SECONDS, min_silence_duration_ms=160))
+    windows = []
+    for seg in speech:
+        start, end = seg["start"] / sampling_rate, seg["end"] / sampling_rate
+        if windows and end - windows[-1][0] <= WINDOW_SECONDS:
+            windows[-1] = (windows[-1][0], end)
+        else:
+            windows.append((start, end))
+    return windows
+
+
+def pick_language(model, chunk, languages):
+    """Найімовірніша мова фрагмента серед дозволених."""
+    _lang, _prob, all_probs = model.detect_language(audio=chunk)
+    allowed = [(lang, prob) for lang, prob in all_probs if lang in languages]
+    return max(allowed, key=lambda lp: lp[1])[0] if allowed else languages[0]
+
+
+def transcribe_channel(model, pipeline, samples, languages, batch_size, sampling_rate=16000):
+    windows = speech_windows(samples, sampling_rate)
+    if not windows:
+        return []
+
+    if len(languages) == 1:
+        window_langs = [languages[0]] * len(windows)
+    else:
+        window_langs, previous = [], None
+        for start, end in windows:
+            if previous and end - start < MIN_DETECT_SECONDS:
+                lang = previous
+            else:
+                chunk = samples[int(start * sampling_rate):int(end * sampling_rate)]
+                lang = pick_language(model, chunk, languages)
+            window_langs.append(lang)
+            previous = lang
+
+    result = []
+    for lang in sorted(set(window_langs)):
+        clips = [{"start": start, "end": end}
+                 for (start, end), wl in zip(windows, window_langs) if wl == lang]
+        segments, _info = pipeline.transcribe(
+            samples, language=lang, clip_timestamps=clips, batch_size=batch_size)
+        result.extend(
+            {"start": round(s.start, 2), "end": round(s.end, 2),
+             "text": s.text.strip(), "language": lang}
+            for s in segments if s.text.strip())
+    return sorted(result, key=lambda seg: seg["start"])
+
+
+def transcribe_channels(model, pipeline, audio_bytes, stereo, languages, batch_size=16):
+    """Повертає список каналів; кожен канал — сегменти {start, end, text, language}.
+
+    Мова визначається для кожного вікна мовлення окремо, але лише серед `languages`:
+    так нарада може переходити з української на англійську, а українська не
+    сплутується з близькими мовами поза списком.
     Винесено окремо від Modal, щоб логіку можна було перевірити локально.
     """
     from faster_whisper.audio import decode_audio
 
     decoded = decode_audio(io.BytesIO(audio_bytes), split_stereo=stereo)
     channels = list(decoded) if stereo else [decoded]
-
-    result = []
-    for samples in channels:
-        segments, _info = pipeline.transcribe(
-            samples, language=language, batch_size=batch_size, vad_filter=True)
-        result.append([
-            {"start": round(s.start, 2), "end": round(s.end, 2), "text": s.text.strip()}
-            for s in segments if s.text.strip()
-        ])
-    return result
+    return [transcribe_channel(model, pipeline, samples, languages, batch_size)
+            for samples in channels]
 
 
 @app.cls(gpu="L4", image=image, volumes={MODEL_DIR: models_volume},
@@ -60,8 +117,9 @@ class Transcriber:
                              download_root=MODEL_DIR)
         # При першому запуску модель щойно завантажилась: зберігаємо її в томі
         models_volume.commit()
+        self.model = model
         self.pipeline = BatchedInferencePipeline(model=model)
 
     @modal.method()
-    def transcribe(self, audio_bytes: bytes, stereo: bool, language: str = "uk"):
-        return transcribe_channels(self.pipeline, audio_bytes, stereo, language)
+    def transcribe(self, audio_bytes: bytes, stereo: bool, languages: list):
+        return transcribe_channels(self.model, self.pipeline, audio_bytes, stereo, languages)
