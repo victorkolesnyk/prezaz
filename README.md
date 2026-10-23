@@ -38,7 +38,7 @@ zhyva-apteka/
 │   ├── vectorstore.py          # Клієнт ChromaDB
 │   └── retriever.py            # Пошук фрагментів
 │
-├── tools/teams_recorder/       # Запис звуку зустрічей Teams у файл (окремий інструмент)
+├── tools/teams_recorder/       # Запис зустрічей Teams і транскрипція через Modal (окремий інструмент)
 │
 ├── scripts/                    # Службові скрипти
 │   ├── ingest.py               # Завантаження книг у ChromaDB

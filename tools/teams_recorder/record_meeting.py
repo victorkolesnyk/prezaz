@@ -3,12 +3,13 @@
 Скрипт одночасно пише два джерела:
   * системний звук (loopback динаміків/навушників) — голоси інших учасників;
   * мікрофон — ваш голос.
-Обидва потоки зводяться в один файл, придатний для транскрибування.
+Типово запис стерео: ви в лівому каналі, співрозмовники в правому.
 
 Приклади:
     python record_meeting.py                  # запис у ./recordings/*.mp3, зупинка Ctrl+C
+    python record_meeting.py --transcribe     # після зупинки одразу транскрибувати (Modal)
     python record_meeting.py --list           # показати аудіопристрої
-    python record_meeting.py --stereo         # ви в лівому каналі, співрозмовники в правому
+    python record_meeting.py --mono           # звести обидва джерела в один канал
     python record_meeting.py --format flac --duration 90
 """
 
@@ -33,9 +34,12 @@ FORMATS = {
     "wav": {"format": "WAV", "subtype": "PCM_16"},
 }
 
-# Бітрейт MP3 (кбіт/с) і відповідний compression_level libsndfile, виміряно для 16 кГц моно.
-# 24 кбіт/с — «диктофонна» якість: близько 11 МБ на годину, мовлення розбірливе.
-MP3_BITRATES = {16: 0.93, 24: 0.9, 32: 0.85, 40: 0.8}
+# Загальний бітрейт MP3 (кбіт/с) і відповідний compression_level libsndfile,
+# виміряно для 16 кГц; від кількості каналів відповідність не залежить.
+MP3_COMPRESSION = {16: 0.93, 24: 0.9, 32: 0.85, 40: 0.8, 48: 0.75, 64: 0.6, 80: 0.5}
+# Користувач задає бітрейт на канал: 24 кбіт/с — «диктофонна» якість,
+# близько 11 МБ на годину на кожен канал.
+MP3_CHANNEL_BITRATES = (16, 24, 32, 40)
 
 
 def find_device(devices, name_part):
@@ -112,7 +116,7 @@ def record(args):
         mic = (find_device(sc.all_microphones(), args.mic)
                if args.mic else sc.default_microphone())
 
-    channels = 2 if args.stereo else 1
+    channels = 1 if args.mono else 2
     path = build_output_path(args.out, args.name, args.format)
     frames = int(args.samplerate * BLOCK_SECONDS)
     max_blocks = int(args.duration * 60 / BLOCK_SECONDS) if args.duration else None
@@ -137,7 +141,7 @@ def record(args):
     blocks = 0
     file_opts = dict(FORMATS[args.format])
     if args.format == "mp3":
-        file_opts["compression_level"] = MP3_BITRATES[args.bitrate]
+        file_opts["compression_level"] = MP3_COMPRESSION[args.bitrate * channels]
 
     with contextlib.ExitStack() as stack:
         out = stack.enter_context(sf.SoundFile(
@@ -156,7 +160,7 @@ def record(args):
 
                 n = min(len(others), len(me))
                 others, me = others[:n], me[:n]
-                if args.stereo:
+                if not args.mono:
                     data = np.column_stack((me, others))
                 else:
                     data = me + others
@@ -187,12 +191,16 @@ def parse_args(argv=None):
     p.add_argument("--out", default="recordings", help="тека для записів (типово ./recordings)")
     p.add_argument("--name", default="", help="префікс назви файлу, напр. назва зустрічі")
     p.add_argument("--format", choices=FORMATS, default="mp3", help="формат файлу (типово mp3)")
-    p.add_argument("--bitrate", type=int, choices=MP3_BITRATES, default=24,
-                   help="бітрейт MP3, кбіт/с (типово 24, близько 11 МБ на годину)")
+    p.add_argument("--bitrate", type=int, choices=MP3_CHANNEL_BITRATES, default=24,
+                   help="бітрейт MP3 на канал, кбіт/с (типово 24, близько 11 МБ "
+                        "на годину на канал)")
     p.add_argument("--samplerate", type=int, default=16000,
                    help="частота дискретизації, Гц (типово 16000, достатньо для мовлення)")
-    p.add_argument("--stereo", action="store_true",
-                   help="ви в лівому каналі, співрозмовники в правому")
+    p.add_argument("--mono", action="store_true",
+                   help="звести обидва джерела в один канал (типово стерео: "
+                        "ви ліворуч, співрозмовники праворуч)")
+    p.add_argument("--transcribe", action="store_true",
+                   help="після зупинки транскрибувати запис через Modal (див. transcribe.py)")
     p.add_argument("--no-mic", action="store_true", help="не писати мікрофон")
     p.add_argument("--mic", help="частина назви мікрофона (типово системний)")
     p.add_argument("--speaker", help="частина назви динаміків/навушників (типово системні)")
@@ -207,7 +215,12 @@ def main(argv=None):
     if args.list:
         list_devices()
         return
-    record(args)
+    path = record(args)
+    if args.transcribe:
+        from transcribe import get_transcriber, transcribe_file
+
+        print()
+        transcribe_file(path, get_transcriber())
 
 
 if __name__ == "__main__":

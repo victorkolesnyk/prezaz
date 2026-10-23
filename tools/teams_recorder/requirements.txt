@@ -2,3 +2,5 @@
 soundcard>=0.4.3
 soundfile>=0.12.1
 numpy>=1.24.0
+# Транскрипція на хмарній відеокарті (transcribe.py, modal_app.py)
+modal>=1.0
