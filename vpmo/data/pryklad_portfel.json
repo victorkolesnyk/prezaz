@@ -1,0 +1,69 @@
+{
+  "portfolio": {
+    "name": "ПРИКЛАД: умовний портфель (вигадані дані для навчання і тестів)",
+    "as_of": "2026-10-23",
+    "currency": "EUR",
+    "policy": {"time_days": 30, "end_date_days": 60, "warn_ratio": 0.8, "decision_days": 7},
+    "criteria": [
+      {"key": "strategic", "name": "Стратегічний внесок", "weight": 0.4},
+      {"key": "urgency", "name": "Терміновість", "weight": 0.3},
+      {"key": "readiness", "name": "Готовність", "weight": 0.3}
+    ]
+  },
+  "projects": [
+    {
+      "id": "PR-A",
+      "name": "Умовний проєкт А: реконструкція об'єкта",
+      "programme": "УМОВНА ПРОГРАМА",
+      "executing_agent": "Умовний Виконавчий Агент 1",
+      "status": "active",
+      "trello_board": "SITE1 ПРИКЛАД",
+      "stage": {"process": "delivery", "name": "Етап 2: проєктна документація", "started": "2026-09-01", "boundary_date": "2026-11-10"},
+      "dates": {"start": "2026-06-01", "planned_end": "2027-12-31", "closure": "2028-02-28"},
+      "budget": {"baseline": 1000000, "contingency": 50000, "forecast": 1045000},
+      "board": {"executive": "Куратор проєкту", "senior_user": "Командир об'єкта",
+                "senior_supplier": "Керівник програми Агента 1", "project_manager": "Керівник проєкту"},
+      "tolerances": {"time_days": 30, "cost_eur": 50000, "scope": "без вилучення обов'язкового",
+                     "quality": "кожен продукт прийнято з першої або другої спроби",
+                     "benefits": "не нижче 90 % плану", "risk": "оцінка до 15 з 25",
+                     "sustainability": "енергоспоживання не вище проєктного"},
+      "business_case_reviewed": "2026-09-01",
+      "lessons_reviewed_at_start": true,
+      "tailoring_note": "Комерційний підхід не застосовується: закупівлі веде Агент.",
+      "products": {"mandate": "approved", "project_brief": "approved", "business_case": "approved",
+                   "pid": "approved", "project_plan": "approved", "stage_plan": "approved",
+                   "risk_register": "maintained", "issue_register": "maintained", "lessons_log": "maintained",
+                   "product_descriptions": "approved", "tailoring": "approved", "end_stage_report": "draft"},
+      "scope_items": [
+        {"id": "A1", "name": "Корпус 1", "priority": "must"},
+        {"id": "A2", "name": "Благоустрій", "priority": "should", "dropped": true}
+      ],
+      "risks": [
+        {"id": "R1", "title": "Затримка експертизи проєкту", "probability": 4, "impact": 5, "response": ""},
+        {"id": "R2", "title": "Зростання цін на матеріали", "probability": 3, "impact": 3, "response": "резерв"}
+      ],
+      "benefits": [{"name": "Ліжко-місця реабілітації", "planned": 100, "forecast": 95}],
+      "quality": {"rejected_products": 0, "repeat_failures": 0},
+      "scores": {"strategic": 5, "urgency": 4, "readiness": 4}
+    },
+    {
+      "id": "PR-B",
+      "name": "Умовний проєкт Б: навчання персоналу",
+      "status": "active",
+      "stage": {"process": "IP", "name": "Ініціювання", "started": "2026-10-01", "boundary_date": "2026-11-30"},
+      "budget": {"baseline": 200000, "contingency": 10000, "forecast": 214000},
+      "board": {"executive": "Куратор проєкту", "project_manager": "Керівник проєкту"},
+      "products": {"mandate": "approved", "project_brief": "approved", "business_case": "draft"},
+      "scores": {"strategic": 3, "urgency": 3, "readiness": 2}
+    },
+    {
+      "id": "PR-C",
+      "name": "Умовний проєкт В: постачання обладнання",
+      "status": "pipeline",
+      "stage": {"process": "SU"},
+      "products": {"mandate": "draft"},
+      "scores": {"strategic": 4, "urgency": 5},
+      "gaps": ["Лист-доручення не видано"]
+    }
+  ]
+}

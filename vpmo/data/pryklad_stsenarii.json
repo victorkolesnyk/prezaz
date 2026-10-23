@@ -1,0 +1,18 @@
+{
+  "name": "ПРИКЛАД: перша черга обсягу двох умовних Сайтів",
+  "currency": "євро",
+  "budget_available": 10000000,
+  "criteria": [
+    {"key": "capability", "name": "Внесок у спроможність", "weight": 0.5},
+    {"key": "urgency", "name": "Терміновість", "weight": 0.3},
+    {"key": "readiness", "name": "Готовність", "weight": 0.2}
+  ],
+  "items": [
+    {"id": "S-A.1", "name": "Сайт А: проєктна документація", "cost": 800000, "mandatory": true, "scores": {"capability": 3, "urgency": 5, "readiness": 5}},
+    {"id": "S-A.2", "name": "Сайт А: реконструкція корпусу", "cost": 5000000, "depends_on": ["S-A.1"], "scores": {"capability": 5, "urgency": 4, "readiness": 3}},
+    {"id": "S-A.3", "name": "Сайт А: обладнання", "cost": 1500000, "depends_on": ["S-A.2"], "scores": {"capability": 5, "urgency": 3, "readiness": 2}},
+    {"id": "S-B.1", "name": "Сайт Б: модульні будинки", "cost": 3000000, "scores": {"capability": 4, "urgency": 5, "readiness": 4}},
+    {"id": "S-B.2", "name": "Сайт Б: навчання персоналу", "cost": 400000, "scores": {"capability": 3, "urgency": 3, "readiness": 5}},
+    {"id": "S-B.3", "name": "Сайт Б: благоустрій території", "cost": 900000, "scores": {"capability": 1, "urgency": 1, "readiness": 4}}
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "name": "vpmo",
+  "version": "0.1.0",
+  "description": "Віртуальний портфельний офіс (PMO) за PRINCE2 7, P3O і MoP: огляд портфеля, допуски за сімома показниками, перевірка меж етапів, звіти про виняток, пріоритизація фінансування. Працює поверх дошок Trello і плагіна renovator-pm.",
+  "author": {"name": "Віктор Колесник"},
+  "keywords": ["pmo", "prince2", "portfolio", "p3o", "mop", "renovator", "trello"]
+}
